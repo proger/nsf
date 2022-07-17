@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .source import Source
+from .source import Harmonic
 
 
 class CondEncoder(nn.Module):
@@ -40,7 +40,7 @@ class Cond(nn.Module):
     def __init__(self, chunk_size=8192, hop_size=256):
         super().__init__()
 
-        self.source = Source()
+        self.source = Harmonic()
         self.cond_encoder = CondEncoder()
 
         input_size = chunk_size//hop_size

@@ -5,8 +5,8 @@ import torch.nn.functional as F
 tau = 2*torch.pi
 
 
-class Source(nn.Module):
-    """Source module
+class Harmonic(nn.Module):
+    """Harmonic source module
 
     Given f0, construct an excitation signal
     based on random noise in unvoiced regions and
@@ -56,7 +56,7 @@ if __name__ == '__main__':
 
         t = torch.arange(f.shape[0])
 
-        e = Source(num_harmonics=1).forward(f[None, None, :]).squeeze()
+        e = Harmonic(num_harmonics=1).forward(f[None, None, :]).squeeze()
         print(e.shape)
 
         fig, (ax0, ax1) = plt.subplots(2, 1, sharex=True)
