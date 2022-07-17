@@ -3,10 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .source import Harmonic
 
-
-class CondEncoder(nn.Module):
+class Encoder(nn.Module):
     def __init__(self, in_channels=36, out_channels=63) -> None:
         super().__init__()
 
@@ -30,34 +28,26 @@ class CondEncoder(nn.Module):
         return x
 
 
-class Cond(nn.Module):
-    """Conditioning module
-
-    Produce excitation signal using upsampled f0 (first row of input)
-    and stack with upsampled and encoded remaining conditioning features.
+class Upsampler(nn.Module):
     """
-
+    Upsample waveform conditioning features.
+    """
     def __init__(self, chunk_size=8192, hop_size=256):
         super().__init__()
-
-        self.source = Harmonic()
-        self.cond_encoder = CondEncoder()
 
         input_size = chunk_size//hop_size
         self.upsample_factor = math.ceil(chunk_size/input_size)
 
     def forward(self, x):
-        f = x[:, 0:1,  :]
-        c = x[:, 1:, :]
-
-        f = f.repeat_interleave(self.upsample_factor, dim=-1)
-        f = self.source(f)
-        c = self.cond_encoder(c)
-        c = c.repeat_interleave(self.upsample_factor, dim=-1)
-
-        return torch.cat([f, c], dim=1)
+        return x.repeat_interleave(self.upsample_factor, dim=-1)
 
 
 if __name__ == '__main__':
-    m = Cond()
-    print(m.forward(torch.randn(1, 37, 32)).shape)
+    up = Upsampler()
+    x = torch.randn(1, 37, 32)
+    x = up.forward(x)
+    f, c = x.split([1, 36], dim=1)
+    encoder = Encoder()
+    c = encoder.forward(c)
+    print(torch.cat([f, c], dim=1).shape)
+
