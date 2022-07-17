@@ -28,7 +28,7 @@ class Encoder(nn.Module):
         return x
 
 
-class Upsampler(nn.Module):
+class Upsample(nn.Module):
     """
     Upsample waveform conditioning features.
     """
@@ -43,7 +43,7 @@ class Upsampler(nn.Module):
 
 
 if __name__ == '__main__':
-    up = Upsampler()
+    up = Upsample()
     x = torch.randn(1, 37, 32)
     x = up.forward(x)
     f, c = x.split([1, 36], dim=1)
