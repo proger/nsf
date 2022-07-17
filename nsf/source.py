@@ -22,9 +22,9 @@ class Harmonic(nn.Module):
         H = num_harmonics
         self.harmonics = nn.Parameter(torch.arange(1, H+1)[None, :, None], requires_grad=False)
         if H == 1:
-            self.ff = nn.Identity()
+            self.collapse = nn.Identity()
         else:
-            self.ff = nn.Linear(H, 1)
+            self.collapse = nn.Linear(H, 1)
 
     def forward(self, f):
         _,_,_ = f.shape # N 1 T
@@ -38,7 +38,7 @@ class Harmonic(nn.Module):
         harmonic_scale = uv * self.alpha
 
         e = harmonic_scale * torch.sin(x + self.phi) + noise_scale * noise
-        e = self.ff(e.mT).mT
+        e = self.collapse(e.mT).mT
         e = torch.tanh(e)
         return e
 
