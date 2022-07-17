@@ -28,13 +28,16 @@ class Harmonic(nn.Module):
 
     def forward(self, f):
         _,_,_ = f.shape # N 1 T
-        n = self.sigma * torch.randn_like(f)
+        noise = self.sigma * torch.randn_like(f)
 
         c = tau/self.rate
         x = c*torch.cumsum(self.harmonics * f, dim=-1)
-        e = torch.where(f > 0,
-                        self.alpha * torch.sin(x + self.phi) + n,
-                        self.alpha / (3 * self.sigma) * n)
+
+        uv = torch.ones_like(f) * (f > 0)
+        noise_scale = uv + (1-uv) * (self.alpha / (3 * self.sigma))
+        harmonic_scale = uv * self.alpha
+
+        e = harmonic_scale * torch.sin(x + self.phi) + noise_scale * noise
         e = self.ff(e.transpose(-1, -2)).transpose(-1, -2)
         e = torch.tanh(e)
         return e
