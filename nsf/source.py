@@ -38,7 +38,7 @@ class Harmonic(nn.Module):
         harmonic_scale = uv * self.alpha
 
         e = harmonic_scale * torch.sin(x + self.phi) + noise_scale * noise
-        e = self.ff(e.transpose(-1, -2)).transpose(-1, -2)
+        e = self.ff(e.mT).mT
         e = torch.tanh(e)
         return e
 
