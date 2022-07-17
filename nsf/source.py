@@ -42,6 +42,11 @@ class Harmonic(nn.Module):
         return e
 
 
+class Noise(nn.Module):
+    def forward(self, f):
+        return torch.randn_like(f)
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
