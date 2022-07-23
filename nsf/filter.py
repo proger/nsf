@@ -28,7 +28,7 @@ class SimpleFilter(nn.Module):
         for conv_padding, conv in zip(self.conv_padding, self.conv):
             x_ = x
             x = conv(F.pad(x, (conv_padding, 0))).tanh()
-            x += x_ + c
+            x = x + x_ + c
         x = self.collapse(x.mT).tanh().mT
         return x + x_input
 
