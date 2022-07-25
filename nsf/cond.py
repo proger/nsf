@@ -28,23 +28,9 @@ class Encoder(nn.Module):
         return x
 
 
-class Upsample(nn.Module):
-    """
-    Upsample waveform conditioning features.
-    """
-    def __init__(self, chunk_size=8192, hop_size=256):
-        super().__init__()
-
-        input_size = chunk_size//hop_size
-        self.upsample_factor = math.ceil(chunk_size/input_size)
-
-    def forward(self, x):
-        return x.repeat_interleave(self.upsample_factor, dim=-1)
-
-
 if __name__ == '__main__':
-    up = Upsample()
-    x = torch.randn(1, 37, 32)
+    up = nn.Upsample(scale_factor=160, mode='nearest')
+    x = torch.randn(1, 37, 40)
     x = up.forward(x)
     f, c = x.split([1, 36], dim=1)
     encoder = Encoder()
