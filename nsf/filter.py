@@ -16,7 +16,7 @@ class SimpleFilter(nn.Module):
                       bias=False)
             for k in range(depth)
         ])
-        self.conv_padding = [(kernel_size - 1) * (1<<k) for k in range(depth)]
+        self.conv_padding = tuple((kernel_size - 1) * (1<<k) for k in range(depth))
 
         self.collapse = nn.Linear(channels, 1)
 
