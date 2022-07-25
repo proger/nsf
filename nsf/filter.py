@@ -7,7 +7,7 @@ class SimpleFilter(nn.Module):
     def __init__(self, channels=64, depth=10) -> None:
         super().__init__()
 
-        self.expand = nn.Linear(1, channels)
+        self.expand = nn.Linear(1, channels, bias=False)
 
         kernel_size = 3
         self.conv = nn.ModuleList([
@@ -18,7 +18,8 @@ class SimpleFilter(nn.Module):
         ])
         self.conv_padding = tuple((kernel_size - 1) * (1<<k) for k in range(depth))
 
-        self.collapse = nn.Linear(channels, 1)
+        self.pre_collapse = nn.Linear(channels, channels // 2, bias=False)
+        self.collapse = nn.Linear(channels // 2, 1, bias=False)
 
     def forward(self, x, c):
         _,_,_ = x.shape
@@ -29,7 +30,11 @@ class SimpleFilter(nn.Module):
             x_ = x
             x = conv(F.pad(x, (conv_padding, 0))).tanh()
             x = x + x_ + c
-        x = self.collapse(x.mT).tanh().mT
+        x = x * 0.1 # helps training
+        x = x.mT
+        x = self.pre_collapse(x).tanh()
+        x = self.collapse(x).tanh()
+        x = x.mT
         return x + x_input
 
 
