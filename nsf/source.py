@@ -43,8 +43,12 @@ class Harmonic(nn.Module):
 
 
 class Noise(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.alpha = nn.Parameter(0.1*torch.ones(1,), requires_grad=False)
+
     def forward(self, f):
-        return torch.randn_like(f)
+        return torch.randn_like(f) * self.alpha / 3
 
 
 if __name__ == '__main__':
