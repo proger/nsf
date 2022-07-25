@@ -1,20 +1,28 @@
+import math
+
 import torch
 import torch.nn as nn
 
-from .cond import Upsample, Encoder
+from .cond import Encoder
 from .filter import SimpleFilter
 from .source import Harmonic, Noise
 from .sum import Sum
 
 
 class HnNSF(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, sample_rate, chunk_size=10<<10, hop_size=160) -> None:
         super().__init__()
 
-        self.upsample = Upsample()
-        self.encoder = Encoder()
+        self.sample_rate = sample_rate
+        self.encoder = Encoder(in_channels=37, out_channels=64)
 
-        self.harmonic = Harmonic()
+        input_size = chunk_size//hop_size
+        self.scale_factor = math.ceil(chunk_size/input_size)
+
+        self.upsample_nearest = nn.Upsample(scale_factor=self.scale_factor, mode='nearest')
+        self.upsample_linear = nn.Upsample(scale_factor=self.scale_factor, mode='linear')
+
+        self.harmonic = Harmonic(sample_rate=sample_rate)
         self.harmonic_filters = nn.ModuleList([
             SimpleFilter() for _ in range(5)
         ])
@@ -25,10 +33,9 @@ class HnNSF(nn.Module):
         self.sum = Sum()
 
     def forward(self, x):
-        x = self.upsample(x)
         f0, conditions = x[:, :1], x[:, 1:]
-        conditions = self.encoder(conditions)
-        x = torch.cat([f0, conditions], dim=1)
+        f0 = self.upsample_nearest(f0)
+        x = self.upsample_linear(self.encoder(x))
 
         harmonic = self.harmonic(f0)
         for filter in self.harmonic_filters:
@@ -42,6 +49,6 @@ class HnNSF(nn.Module):
 
 
 if __name__ == '__main__':
-    model = HnNSF()
-    print(sum(p.numel() for p in model.parameters()))
-    print(model.forward(torch.randn(1, 37, 32)).shape)
+    model = HnNSF(sample_rate=16000)
+    print(model, 'has parameters', sum(p.numel() for p in model.parameters()))
+    print(model.forward(torch.randn(1, 37, 40)).shape)
