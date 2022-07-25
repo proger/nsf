@@ -44,7 +44,8 @@ class HnNSF(nn.Module):
         noisy = self.noise_like(f0)
         noisy = self.noise_filter(noisy, x)
 
-        waveform = self.sum(torch.ones_like(f0) * (f0 > 0), harmonic, noisy)
+        uv = torch.ones_like(f0) * (f0 > 0)
+        waveform = self.sum(uv, harmonic, noisy)
         return waveform
 
 
