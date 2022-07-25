@@ -12,11 +12,11 @@ class Harmonic(nn.Module):
     based on random noise in unvoiced regions and
     sine mixtures in voices regions.
     """
-    def __init__(self, rate=22050, num_harmonics=7):
+    def __init__(self, sample_rate, num_harmonics=7):
         super().__init__()
-        self.rate = rate
+        self.rate = sample_rate
         self.alpha = nn.Parameter(0.1*torch.ones(1,), requires_grad=False)
-        self.phi = nn.Parameter(-torch.pi + tau*torch.rand((1,)))
+        self.phi = nn.Parameter(-torch.pi + tau*torch.rand((1,)), requires_grad=True)
         self.sigma = nn.Parameter(0.003*torch.ones(1,), requires_grad=False)
         # (H+1) * f_max < sr/4
         H = num_harmonics
@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
         t = torch.arange(f.shape[0])
 
-        e = Harmonic(num_harmonics=1).forward(f[None, None, :]).squeeze()
+        e = Harmonic(sample_rate=22050, num_harmonics=1).forward(f[None, None, :]).squeeze()
         print(e.shape)
 
         fig, (ax0, ax1) = plt.subplots(2, 1, sharex=True)
