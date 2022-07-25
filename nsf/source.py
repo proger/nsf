@@ -1,8 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-tau = 2*torch.pi
 
 
 class Harmonic(nn.Module):
@@ -16,7 +13,8 @@ class Harmonic(nn.Module):
         super().__init__()
         self.rate = sample_rate
         self.alpha = nn.Parameter(0.1*torch.ones(1,), requires_grad=False)
-        self.phi = nn.Parameter(-torch.pi + tau*torch.rand((1,)), requires_grad=True)
+        self.tau = 2*torch.pi
+        self.phi = nn.Parameter(-torch.pi + self.tau*torch.rand((1,)), requires_grad=True)
         self.sigma = nn.Parameter(0.003*torch.ones(1,), requires_grad=False)
         # (H+1) * f_max < sr/4
         H = num_harmonics
@@ -30,7 +28,7 @@ class Harmonic(nn.Module):
         _,_,_ = f.shape # N 1 T
         noise = self.sigma * torch.randn_like(f)
 
-        c = tau/self.rate
+        c = self.tau/self.rate
         x = c*torch.cumsum(self.harmonics * f, dim=-1)
 
         uv = torch.ones_like(f) * (f > 0)
