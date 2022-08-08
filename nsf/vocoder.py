@@ -10,14 +10,20 @@ from .sum import Sum
 
 
 class HnNSF(nn.Module):
-    def __init__(self, sample_rate, chunk_size=10<<10, hop_size=160) -> None:
+    def __init__(self,
+                 sample_rate,
+                 hop_length=160,
+                 in_channels=37,
+                 ) -> None:
         super().__init__()
 
-        self.sample_rate = sample_rate
-        self.encoder = Encoder(in_channels=37, out_channels=64)
+        self.input_mean = nn.Parameter(torch.zeros(in_channels, 1), requires_grad=False)
+        self.input_std = nn.Parameter(torch.ones(in_channels, 1), requires_grad=False)
 
-        input_size = chunk_size//hop_size
-        self.scale_factor = math.ceil(chunk_size/input_size)
+        self.sample_rate = sample_rate
+        self.encoder = Encoder(in_channels=in_channels, out_channels=64)
+
+        self.scale_factor = hop_length
 
         self.upsample_nearest = nn.Upsample(scale_factor=self.scale_factor, mode='nearest')
         self.upsample_linear = nn.Upsample(scale_factor=self.scale_factor, mode='linear')
@@ -33,8 +39,9 @@ class HnNSF(nn.Module):
         self.sum = Sum()
 
     def forward(self, x):
-        f0, conditions = x[:, :1], x[:, 1:]
+        _, f0 = x[:, :-1], x[:, -1:]
         f0 = self.upsample_nearest(f0)
+        x = (x - self.input_mean) / self.input_std
         x = self.upsample_linear(self.encoder(x))
 
         harmonic = self.harmonic(f0)
