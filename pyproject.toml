@@ -9,8 +9,12 @@ license = {file = "LICENSE"}
 classifiers = ["License :: OSI Approved :: MIT License"]
 dynamic = ["version", "description"]
 dependencies = [
+    "julius",
     "scipy",
+    "simple-parsing",
     "torch",
+    "torchaudio",
+    "torch-yin",
 ]
 
 [project.optional-dependencies]
