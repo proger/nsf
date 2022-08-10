@@ -25,7 +25,7 @@ class Encoder(nn.Module):
         x = x.transpose(-1, -2)
         x = F.relu(x)
         x = self.conv(F.pad(x, (self.conv_padding, 0))) # causal
-        return x
+        return x.tanh()
 
 
 if __name__ == '__main__':
