@@ -18,8 +18,8 @@ class SimpleFilter(nn.Module):
         ])
         self.conv_padding = tuple((kernel_size - 1) * (1<<k) for k in range(depth))
 
-        self.pre_collapse = nn.Linear(channels, channels // 2, bias=False)
-        self.collapse = nn.Linear(channels // 2, 1, bias=False)
+        self.pre_collapse = nn.Linear(channels, channels // 4, bias=False)
+        self.collapse = nn.Linear(channels // 4, 1, bias=False)
 
     def forward(self, x, c):
         _,_,_ = x.shape
