@@ -8,10 +8,9 @@ class Encoder(nn.Module):
     def __init__(self, in_channels=36, out_channels=63) -> None:
         super().__init__()
 
-        hidden_size = 64
+        hidden_size = 32
         self.lstm = nn.LSTM(input_size=in_channels, hidden_size=hidden_size,
-                            num_layers=2, batch_first=True,
-                            dropout=0.1, bidirectional=True)
+                            num_layers=1, batch_first=True, bidirectional=True)
 
         kernel_size, dilation = 3, 1
         self.conv = nn.Conv1d(in_channels=hidden_size*2, out_channels=out_channels,
