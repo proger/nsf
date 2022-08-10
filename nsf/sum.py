@@ -12,7 +12,7 @@ class kernels:
 
 
 def init_1d_fir_kernel_(conv, kernel, requires_grad=False):
-    weight = kernel[::-1]
+    weight = kernel[::-1].copy()
     conv.weight.data = torch.from_numpy(weight)[None, None, :].float()
     conv.requires_grad_(requires_grad)
 
