@@ -30,11 +30,11 @@ class HnNSF(nn.Module):
 
         self.harmonic = Harmonic(sample_rate=sample_rate)
         self.harmonic_filters = nn.ModuleList([
-            SimpleFilter() for _ in range(5)
+            SimpleFilter(depth=10) for _ in range(5)
         ])
 
         self.noise_like = Noise()
-        self.noise_filter = SimpleFilter()
+        self.noise_filter = SimpleFilter(depth=5)
 
         self.sum = Sum()
 
