@@ -20,6 +20,8 @@ from nsf.train_ops import plot_grad_flow, evaluate, checkpoint
 class Experiment:
     """ Experiment parameters """
     exp: Path # Experiment directory
+    train: Path # file with training waveform paths in the first column
+    eval: Path # file with evaluation waveforms paths in the second column
     lr: float = 3e-4 # AdamW learning rate
     num_gpus: int = 1 # How many GPUs to use
     dist_url: str = 'tcp://localhost:54321'
@@ -49,11 +51,13 @@ def train(rank, h: Experiment):
 
     generator = HnNSF(sample_rate=h.sample_rate, in_channels=h.in_channels)
 
-    train_set = nsf.dataset.ConditionalWaveDataset(nsf.dataset.sumska_train,
+    train_set = nsf.dataset.ConditionalWaveDataset([line.split('\t', maxsplit=1)[0]
+                                                    for line in h.train.read_text().split('\n')],
                                                    sample_rate=h.sample_rate,
                                                    chunk_size=h.chunk_size,
                                                    condition_encoder_checkpoint=h.condition_encoder_checkpoint)
-    eval_set = nsf.dataset.ConditionalWaveDataset(nsf.dataset.sumska_val,
+    eval_set = nsf.dataset.ConditionalWaveDataset([line.split('\t', maxsplit=1)[0]
+                                                   for line in h.eval.read_text().split('\n')],
                                                   sample_rate=h.sample_rate,
                                                   chunk_size=h.chunk_size,
                                                   condition_encoder_checkpoint=h.condition_encoder_checkpoint)
