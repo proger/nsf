@@ -29,12 +29,17 @@ class Experiment:
     seed: int = 3407 # Random seed
     chunk_size: Optional[int] = None
     sample_rate: int = 16000
-
-
-#torch.autograd.set_detect_anomaly(True)
+    condition_encoder_checkpoint: Optional[Path] = None # Path to ha.rnn.Encoder checkpoint
+    anomaly: bool = False # Enable autograd anomaly detection
+    init: Optional[Path] = None # initialize from this checkpoint
+    in_channels: int = 37 # Number of input channels for generator
+    norm_examples: int = 1024 # Number of dataset examples for feature normalization
 
 
 def train(rank, h: Experiment):
+    if h.anomaly:
+        torch.autograd.set_detect_anomaly(True)
+
     if h.num_gpus > 1:
         init_process_group(backend='nccl', init_method=h.dist_url,
                            world_size=h.num_gpus, rank=rank)
@@ -42,19 +47,23 @@ def train(rank, h: Experiment):
     torch.cuda.manual_seed(h.seed)
     device = torch.device('cuda:{:d}'.format(rank))
 
-    generator = HnNSF(sample_rate=h.sample_rate, in_channels=37)
+    generator = HnNSF(sample_rate=h.sample_rate, in_channels=h.in_channels)
 
     train_set = nsf.dataset.ConditionalWaveDataset(nsf.dataset.sumska_train,
                                                    sample_rate=h.sample_rate,
-                                                   chunk_size=h.chunk_size)
+                                                   chunk_size=h.chunk_size,
+                                                   condition_encoder_checkpoint=h.condition_encoder_checkpoint)
     eval_set = nsf.dataset.ConditionalWaveDataset(nsf.dataset.sumska_val,
-                                                 sample_rate=h.sample_rate,
-                                                 chunk_size=h.chunk_size)
+                                                  sample_rate=h.sample_rate,
+                                                  chunk_size=h.chunk_size,
+                                                  condition_encoder_checkpoint=h.condition_encoder_checkpoint)
 
     train_loader = DataLoader(train_set, batch_size=h.batch_size,
-                              num_workers=8, pin_memory=True,
-                              drop_last=True, shuffle=True)
-    eval_loader = DataLoader(eval_set, batch_size=1, num_workers=8, pin_memory=True)
+                              num_workers=16, pin_memory=True,
+                              drop_last=True, shuffle=True,
+                              prefetch_factor=2, persistent_workers=True)
+    eval_loader = DataLoader(eval_set, batch_size=1, num_workers=16, pin_memory=True,
+                             prefetch_factor=2, persistent_workers=True)
 
     if rank == 0:
         sw = SummaryWriter(h.exp / 'logs')
@@ -66,9 +75,14 @@ def train(rank, h: Experiment):
             'lr': h.lr,
         }, metric_dict={})
 
-        mean, std = nsf.dataset.compute_mean_std(train_set)
+    if h.init is None:
+        mean, std = nsf.dataset.compute_mean_std(train_set, norm_examples=h.norm_examples)
+        print('done computing input statistics')
         generator.input_mean.data, generator.input_std.data = mean, std
         checkpoint(h.exp, generator, 'init')
+    else:
+        print('loading from checkpoint', h.init)
+        generator.load_state_dict(torch.load(h.init, map_location='cpu'), strict=False)
 
     generator.to(device)
 
@@ -90,6 +104,10 @@ def train(rank, h: Experiment):
 
             y_pred = generator(x.to(device))
             y_true = y.to(device)
+
+            trunc = min(y_pred.shape[-1], y_true.shape[-1])
+            y_pred = y_pred[..., :trunc]
+            y_true = y_true[..., :trunc]
 
             loss = stft1(y_pred, y_true) + stft2(y_pred, y_true) + stft3(y_pred, y_true)
             loss.backward()

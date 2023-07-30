@@ -44,19 +44,24 @@ def plot_grad_flow(named_parameters):
     return plt.gcf()
 
 
+@torch.inference_mode()
 def evaluate(model: nn.Module, eval_loader: DataLoader, sw: SummaryWriter, step: int) -> float:
     model.eval()
     sample_rate = model.sample_rate
     device = next(model.parameters()).device
     eval_loss = 0.
 
-    with torch.inference_mode():
-        for i, (x, y) in enumerate(eval_loader):
-            y_pred = model(x.to(device))
-            eval_loss += F.l1_loss(y_pred, y.to(device)).item()
-            y_pred = y_pred.detach().cpu()
-            sw.add_audio(f'eval/pred_{i}', y_pred, step, sample_rate)
-            sw.add_audio(f'eval/true_{i}', y, step, sample_rate)
+    for i, (x, y_true) in enumerate(eval_loader):
+        y_pred = model(x.to(device))
+
+        trunc = min(y_pred.shape[-1], y_true.shape[-1])
+        y_pred = y_pred[..., :trunc]
+        y_true = y_true[..., :trunc]
+
+        eval_loss += F.l1_loss(y_pred, y_true.to(device)).item()
+        y_pred = y_pred.detach().cpu()
+        sw.add_audio(f'eval/pred_{i}', y_pred, step, sample_rate)
+        sw.add_audio(f'eval/true_{i}', y_true, step, sample_rate)
 
     eval_loss /= len(eval_loader)
 

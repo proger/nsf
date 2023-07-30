@@ -17,8 +17,8 @@ class HnNSF(nn.Module):
                  ) -> None:
         super().__init__()
 
-        self.input_mean = nn.Parameter(torch.zeros(in_channels, 1), requires_grad=False)
-        self.input_std = nn.Parameter(torch.ones(in_channels, 1), requires_grad=False)
+        self.input_mean = nn.Parameter(torch.zeros(1, in_channels, 1), requires_grad=False)
+        self.input_std = nn.Parameter(torch.ones(1, in_channels, 1), requires_grad=False)
 
         self.sample_rate = sample_rate
         self.encoder = Encoder(in_channels=in_channels, out_channels=64)

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -57,19 +58,60 @@ class LogMel(nn.Module):
         return x
 
 
+class PPGPitch(nn.Module):
+    def __init__(self, sample_rate=16000, hop_length=160):
+        super().__init__()
+
+        self.sample_rate = sample_rate
+        self.hop_length = hop_length
+
+        from ha.rnn import Encoder # hac --arch lstm
+        self.encoder = Encoder(hidden_dim=1536)
+
+    @torch.inference_mode()
+    def forward(self, wav):
+        assert wav.size(0) == 1 # only batches of 1
+        frames = torchaudio.compliance.kaldi.mfcc(wav)
+
+        # utterance-level CMVN
+        frames -= frames.mean(dim=0)
+        frames /= frames.std(dim=0)
+
+        ppg = self.encoder(frames, input_lengths=torch.tensor([len(frames)])).mT[None,:] # [1, C, T]
+        pitch = torchyin.estimate(wav, self.sample_rate,
+                                  pitch_min=70, pitch_max=400,
+                                  frame_stride=self.hop_length/self.sample_rate) # [1, T]
+
+        _one, C, _T = ppg.size()
+
+        # interpolate ppg to the same length as pitch
+        ppg = torch.nn.functional.interpolate(ppg,
+                                              size=(pitch.size(-1),),
+                                              mode='linear',
+                                              align_corners=False)
+
+        return torch.cat([ppg, pitch[None,:]], dim=-2)
+
+
 class ConditionalWaveDataset(Dataset):
     def __init__(self,
                  files,
                  sample_rate=16000,
                  chunk_size=10<<10,
-                 hop_length=160
+                 hop_length=160,
+                 condition_encoder_checkpoint: Optional[Path] = None,
                  ) -> None:
         super().__init__()
 
         self.files = files
         self.hop_length = hop_length
         self.sample_rate = sample_rate
-        self.mel = LogMel(sample_rate=self.sample_rate, hop_length=self.hop_length)
+        if condition_encoder_checkpoint:
+            self.cond = PPGPitch(sample_rate=self.sample_rate, hop_length=self.hop_length)
+            state_dict = torch.load(condition_encoder_checkpoint, map_location='cpu')['encoder']
+            self.cond.encoder.load_state_dict(state_dict)
+        else:
+            self.cond = LogMel(sample_rate=self.sample_rate, hop_length=self.hop_length)
         self.resample = {
             sr: julius.resample.ResampleFrac(sr, self.sample_rate)
                 if sr != self.sample_rate else nn.Identity()
@@ -89,7 +131,7 @@ class ConditionalWaveDataset(Dataset):
                 y = F.pad(y, (0, self.chunk_size-y.shape[-1]))
         y = y[:, :(y.shape[-1]//self.hop_length)*self.hop_length]
 
-        x = self.mel(y)
+        x = self.cond(y)
         return x.squeeze(0), y
 
     def __len__(self):
@@ -101,8 +143,9 @@ def collate_channels(xs):
     return torch.cat([x.T for x, _ in xs], dim=0)
 
 
-def compute_mean_std(dataset):
-    x = next(iter(DataLoader(dataset, batch_size=1024, num_workers=0,
+@torch.inference_mode()
+def compute_mean_std(dataset, norm_examples=8):
+    x = next(iter(DataLoader(dataset, batch_size=norm_examples, num_workers=8,
                              collate_fn=collate_channels, shuffle=True)))
 
     # compute stats for mel features
@@ -118,29 +161,31 @@ def compute_mean_std(dataset):
     return torch.cat([mean, f0_mean], dim=1), torch.cat([std, f0_std], dim=1)
 
 
-# http://www.openslr.org/109/
-secretagent = sorted(Path('/tank/datasets/hi_fi_tts_v0/audio/92_clean/10425').glob('*.flac'))
+if False:
+    # http://www.openslr.org/109/
+    secretagent = sorted(Path('/tank/datasets/hi_fi_tts_v0/audio/92_clean/10425').glob('*.flac'))
 
-# CMU Arctic
-cmu_root = Path.home() / 'project-NN-Pytorch-scripts/project/01-nsf/DATA/cmu-arctic-data-set'
-cmu_root_wav = cmu_root / 'wav_16k_norm'
-with open(cmu_root / 'scp/train.lst') as f:
-    cmu_train = [(cmu_root_wav / line.strip()).with_suffix('.wav') for line in f]
-with open(cmu_root / 'scp/val.lst') as f:
-    cmu_val = [(cmu_root_wav / line.strip()).with_suffix('.wav') for line in f]
+    # CMU Arctic
+    cmu_root = Path.home() / 'project-NN-Pytorch-scripts/project/01-nsf/DATA/cmu-arctic-data-set'
+    cmu_root_wav = cmu_root / 'wav_16k_norm'
+    with open(cmu_root / 'scp/train.lst') as f:
+        cmu_train = [(cmu_root_wav / line.strip()).with_suffix('.wav') for line in f]
+    with open(cmu_root / 'scp/val.lst') as f:
+        cmu_val = [(cmu_root_wav / line.strip()).with_suffix('.wav') for line in f]
 
-# M-AILABS sumska
-with open('data/sumska/splitaa') as f:
-    sumska_train = [line.split('\t')[0] for line in f]
-with open('data/sumska/splitab') as f:
-    sumska_val = [line.split('\t')[0] for line in f]
-
-
+    # M-AILABS sumska
+    with open('data/sumska/splitaa') as f:
+        sumska_train = [line.split('\t')[0] for line in f]
+    with open('data/sumska/splitab') as f:
+        sumska_val = [line.split('\t')[0] for line in f]
 
 
 if __name__ == '__main__':
     from torch.utils.data import Subset, DataLoader
     from tqdm import tqdm
+
+    encoder = PPGPitch()
+    print(encoder(torch.randn(1, 16000)).shape)
 
     torch.manual_seed(3407)
     print(compute_mean_std(ConditionalWaveDataset(cmu_train, chunk_size=None)))
