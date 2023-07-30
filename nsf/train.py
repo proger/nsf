@@ -102,8 +102,8 @@ def train(rank, h: Experiment):
 
     for epoch in range(h.epochs):
         sw.add_scalar('train/epoch', epoch, step)
-        begin = time.time()
 
+        t0 = time.time()
         for x, y in train_loader:
             g_optimizer.zero_grad(set_to_none=True)
 
@@ -125,14 +125,18 @@ def train(rank, h: Experiment):
             g_optimizer.step()
 
             if rank == 0 and step % h.log_interval == 0:
-                print(epoch, step, loss.item(), flush=True)
+                t1 = time.time()
+                print('[', epoch, step, ']', f'loss: {loss.item():.5f}', f'elapsed: {t1-t0:.3f}', flush=True)
 
             step += 1
 
         if rank == 0:
-            print('epoch duration', time.time() - begin)
-            eval_loss = evaluate(generator, eval_loader, sw, step)
-            print(f'eval step={step} l1={eval_loss}')
+            t0 = time.time()
+            l1, stft512, stft128, stft2048 = evaluate(generator, eval_loader, sw, step)
+            t1 = time.time()
+            print('(', epoch, step, ')',
+                  f'l1: {l1:.5f}', f'stft512: {stft512:.5f}', f'stft128: {stft128:.5f}', f'stft2048: {stft2048}',
+                  f'time: {t1-t0:.3f}', flush=True)
             checkpoint(h.exp, generator, step)
             generator.train()
 

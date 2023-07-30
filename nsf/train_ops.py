@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
+from nsf.loss import STFTLoss
+
 
 def plot_grad_flow(named_parameters):
     """Plots the gradient statistics in named_parameters.
@@ -49,7 +51,11 @@ def evaluate(model: nn.Module, eval_loader: DataLoader, sw: SummaryWriter, step:
     model.eval()
     sample_rate = model.sample_rate
     device = next(model.parameters()).device
-    eval_loss = 0.
+    l1, stft512, stft128, stft2048 = 0., 0., 0., .0
+
+    stft1 = STFTLoss(n_fft=512, win_length=320, hop_length=80).to(device)
+    stft2 = STFTLoss(n_fft=128, win_length=80, hop_length=40).to(device)
+    stft3 = STFTLoss(n_fft=2048, win_length=1920, hop_length=640).to(device)
 
     for i, (x, y_true) in enumerate(eval_loader):
         y_pred = model(x.to(device))
@@ -58,15 +64,25 @@ def evaluate(model: nn.Module, eval_loader: DataLoader, sw: SummaryWriter, step:
         y_pred = y_pred[..., :trunc]
         y_true = y_true[..., :trunc]
 
-        eval_loss += F.l1_loss(y_pred, y_true.to(device)).item()
+        l1 += F.l1_loss(y_pred, y_true.to(device)).item()
+        stft512 += stft1(y_pred, y_true.to(device)).item()
+        stft128 += stft2(y_pred, y_true.to(device)).item()
+        stft2048 += stft3(y_pred, y_true.to(device)).item()
+
         y_pred = y_pred.detach().cpu()
         sw.add_audio(f'eval/pred_{i}', y_pred, step, sample_rate)
         sw.add_audio(f'eval/true_{i}', y_true, step, sample_rate)
 
-    eval_loss /= len(eval_loader)
+    l1 /= len(eval_loader)
+    stft512 /= len(eval_loader)
+    stft128 /= len(eval_loader)
+    stft2048 /= len(eval_loader)
 
-    sw.add_scalar('eval/loss', eval_loss, step)
-    return eval_loss
+    sw.add_scalar('eval/l1', l1, step)
+    sw.add_scalar('eval/stft512', stft512, step)
+    sw.add_scalar('eval/stft128', stft128, step)
+    sw.add_scalar('eval/stft2048', stft2048, step)
+    return l1, stft512, stft128, stft2048
 
 
 def checkpoint(exp_dir: Path, model: nn.Module, step: Union[int, str]) -> Path:
