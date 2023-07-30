@@ -36,6 +36,7 @@ class Experiment:
     init: Optional[Path] = None # initialize from this checkpoint
     in_channels: int = 37 # Number of input channels for generator
     norm_examples: int = 1024 # Number of dataset examples for feature normalization
+    num_workers: int = 8 # Number of workers for dataloaders
 
 
 def train(rank, h: Experiment):
@@ -63,10 +64,10 @@ def train(rank, h: Experiment):
                                                   condition_encoder_checkpoint=h.condition_encoder_checkpoint)
 
     train_loader = DataLoader(train_set, batch_size=h.batch_size,
-                              num_workers=16, pin_memory=True,
+                              num_workers=h.num_workers, pin_memory=True,
                               drop_last=True, shuffle=True,
                               prefetch_factor=2, persistent_workers=True)
-    eval_loader = DataLoader(eval_set, batch_size=1, num_workers=16, pin_memory=True,
+    eval_loader = DataLoader(eval_set, batch_size=1, num_workers=h.num_workers, pin_memory=True,
                              prefetch_factor=2, persistent_workers=True)
 
     if rank == 0:
