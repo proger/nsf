@@ -53,12 +53,12 @@ def train(rank, h: Experiment):
     generator = HnNSF(sample_rate=h.sample_rate, in_channels=h.in_channels)
 
     train_set = nsf.dataset.ConditionalWaveDataset([line.split('\t', maxsplit=1)[0]
-                                                    for line in h.train.read_text().split('\n')],
+                                                    for line in h.train.read_text().strip().split('\n')],
                                                    sample_rate=h.sample_rate,
                                                    chunk_size=h.chunk_size,
                                                    condition_encoder_checkpoint=h.condition_encoder_checkpoint)
     eval_set = nsf.dataset.ConditionalWaveDataset([line.split('\t', maxsplit=1)[0]
-                                                   for line in h.eval.read_text().split('\n')],
+                                                   for line in h.eval.read_text().strip().split('\n')],
                                                   sample_rate=h.sample_rate,
                                                   chunk_size=h.chunk_size,
                                                   condition_encoder_checkpoint=h.condition_encoder_checkpoint)
