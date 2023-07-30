@@ -24,7 +24,7 @@ class Experiment:
     num_gpus: int = 1 # How many GPUs to use
     dist_url: str = 'tcp://localhost:54321'
     log_interval: int = 200 # How many steps to take between logging
-    epochs: int = 300 # How many training set iterations to run
+    epochs: int = 100 # How many training set iterations to run
     batch_size: int = 1
     seed: int = 3407 # Random seed
     chunk_size: Optional[int] = None
@@ -44,10 +44,10 @@ def train(rank, h: Experiment):
 
     generator = HnNSF(sample_rate=h.sample_rate, in_channels=37)
 
-    train_set = nsf.dataset.ConditionalWaveDataset(nsf.dataset.cmu_train,
+    train_set = nsf.dataset.ConditionalWaveDataset(nsf.dataset.sumska_train,
                                                    sample_rate=h.sample_rate,
                                                    chunk_size=h.chunk_size)
-    eval_set = nsf.dataset.ConditionalWaveDataset(nsf.dataset.cmu_val,
+    eval_set = nsf.dataset.ConditionalWaveDataset(nsf.dataset.sumska_val,
                                                  sample_rate=h.sample_rate,
                                                  chunk_size=h.chunk_size)
 

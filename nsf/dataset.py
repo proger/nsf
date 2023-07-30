@@ -9,6 +9,22 @@ import torchyin
 import julius
 
 
+def normalize_loudness(signal, target_dBov=-26.0):
+    """
+    Calculate the current loudness level of the input signal in dBov,
+    Assuming that the input signal values are in the range [-1, 1].
+    """
+    current_dBov = 20.0 * torch.log10(torch.sqrt(torch.mean(signal**2)))
+
+    # Calculate the scaling factor to reach the target loudness level
+    scaling_factor = 10.0 ** ((target_dBov - current_dBov) / 20.0)
+
+    # Apply the scaling factor to normalize the signal
+    normalized_signal = signal * scaling_factor
+
+    return normalized_signal
+
+
 class LogMel(nn.Module):
     def __init__(self, sample_rate=16000, n_fft=512, hop_length=160, win_length=512, n_mels=36) -> None:
         super().__init__()
@@ -65,6 +81,7 @@ class ConditionalWaveDataset(Dataset):
         filename = self.files[index]
         y, sr = torchaudio.load(filename)
         y, sr = self.resample[sr](y), self.sample_rate
+        y = normalize_loudness(y)
 
         if self.chunk_size is not None:
             y = y[:, :self.chunk_size]
@@ -111,6 +128,13 @@ with open(cmu_root / 'scp/train.lst') as f:
     cmu_train = [(cmu_root_wav / line.strip()).with_suffix('.wav') for line in f]
 with open(cmu_root / 'scp/val.lst') as f:
     cmu_val = [(cmu_root_wav / line.strip()).with_suffix('.wav') for line in f]
+
+# M-AILABS sumska
+with open('data/sumska/splitaa') as f:
+    sumska_train = [line.split('\t')[0] for line in f]
+with open('data/sumska/splitab') as f:
+    sumska_val = [line.split('\t')[0] for line in f]
+
 
 
 
