@@ -21,7 +21,7 @@ class Experiment:
     """ Experiment parameters """
     exp: Path # Experiment directory
     train: Path # file with training waveform paths in the first column
-    eval: Path # file with evaluation waveforms paths in the second column
+    eval: Path # file with evaluation waveforms paths in the first column
     lr: float = 3e-4 # AdamW learning rate
     num_gpus: int = 1 # How many GPUs to use
     dist_url: str = 'tcp://localhost:54321'
@@ -47,21 +47,27 @@ def train(rank, h: Experiment):
         init_process_group(backend='nccl', init_method=h.dist_url,
                            world_size=h.num_gpus, rank=rank)
 
+    torch.backends.cuda.matmul.fp32_precision = 'tf32'
+    torch.backends.cudnn.conv.fp32_precision = 'tf32'
+    torch.set_float32_matmul_precision("high")
+
     torch.cuda.manual_seed(h.seed)
     device = torch.device('cuda:{:d}'.format(rank))
 
     generator = HnNSF(sample_rate=h.sample_rate, in_channels=h.in_channels)
 
-    train_set = nsf.dataset.ConditionalWaveDataset([line.split('\t', maxsplit=1)[0]
+    train_set = nsf.dataset.ConditionalWaveDataset([line.split(maxsplit=1)[0]
                                                     for line in h.train.read_text().strip().split('\n')],
                                                    sample_rate=h.sample_rate,
                                                    chunk_size=h.chunk_size,
-                                                   condition_encoder_checkpoint=h.condition_encoder_checkpoint)
-    eval_set = nsf.dataset.ConditionalWaveDataset([line.split('\t', maxsplit=1)[0]
+                                                   condition_encoder_checkpoint=h.condition_encoder_checkpoint,
+                                                   root=h.train.parent)
+    eval_set = nsf.dataset.ConditionalWaveDataset([line.split(maxsplit=1)[0]
                                                    for line in h.eval.read_text().strip().split('\n')],
                                                   sample_rate=h.sample_rate,
                                                   chunk_size=h.chunk_size,
-                                                  condition_encoder_checkpoint=h.condition_encoder_checkpoint)
+                                                  condition_encoder_checkpoint=h.condition_encoder_checkpoint,
+                                                  root=h.eval.parent)
 
     train_loader = DataLoader(train_set, batch_size=h.batch_size,
                               num_workers=h.num_workers, pin_memory=True,

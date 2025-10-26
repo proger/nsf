@@ -1,13 +1,29 @@
+import wave
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
 import torchaudio
 import torchyin
-import julius
+from torch.utils.data import Dataset, DataLoader
+
+
+def read_wave(path: Path | str) -> tuple[torch.Tensor, int]:
+    with wave.open(str(path), "rb") as wf:
+        num_channels = wf.getnchannels()
+        sample_width = wf.getsampwidth()
+        sample_rate = wf.getframerate()
+        num_frames = wf.getnframes()
+        assert sample_width == 2, "expect 16-bit PCM"
+        raw = wf.readframes(num_frames)
+    data = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+    if num_channels == 2:
+        data = data.reshape(-1, 2).mean(axis=1)
+    data /= 32768.0
+    return torch.from_numpy(data)[None, :], sample_rate
 
 
 def normalize_loudness(signal, target_dBov=-26.0):
@@ -100,6 +116,7 @@ class ConditionalWaveDataset(Dataset):
                  chunk_size=10<<10,
                  hop_length=160,
                  condition_encoder_checkpoint: Optional[Path] = None,
+                 root: Optional[Path] = None,
                  ) -> None:
         super().__init__()
 
@@ -112,17 +129,16 @@ class ConditionalWaveDataset(Dataset):
             self.cond.encoder.load_state_dict(state_dict)
         else:
             self.cond = LogMel(sample_rate=self.sample_rate, hop_length=self.hop_length)
-        self.resample = {
-            sr: julius.resample.ResampleFrac(sr, self.sample_rate)
-                if sr != self.sample_rate else nn.Identity()
-            for sr in (8000, 16000, 22050, 24000, 44100, 48000)
-        }
         self.chunk_size = chunk_size
+        self.root = root
 
     def __getitem__(self, index):
         filename = self.files[index]
-        y, sr = torchaudio.load(filename)
-        y, sr = self.resample[sr](y), self.sample_rate
+        try:
+            y, sr = read_wave(filename)
+        except FileNotFoundError:
+            y, sr = read_wave(self.root / filename)
+        assert sr == 16000
         y = normalize_loudness(y)
 
         if self.chunk_size is not None:
