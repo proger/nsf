@@ -21,9 +21,9 @@ def plot_grad_flow(named_parameters):
     https://discuss.pytorch.org/t/check-gradient-flow-in-network/15063/10
     """
     ave_grads = []
-    max_grads= []
+    max_grads = []
     layers = []
-    plt.figure(figsize=(12, 7))
+    plt.figure(figsize=(12, 7), dpi=250)
     for n, p in named_parameters:
         if p.requires_grad and "bias" not in n and p.grad is not None:
             layers.append(n)
@@ -31,17 +31,15 @@ def plot_grad_flow(named_parameters):
             max_grads.append(p.grad.abs().max().detach().cpu())
     plt.bar(torch.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
     plt.bar(torch.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
-    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
     plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
     plt.xlim(left=0, right=len(ave_grads))
-    plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
+    plt.ylim(bottom=0, top=0.02) # zoom in on the lower gradient regions
     plt.xlabel("Layers")
     plt.ylabel("Average gradient")
     plt.title("Gradient flow")
     plt.grid(True)
     plt.legend([Line2D([0], [0], color="c", lw=4),
-                Line2D([0], [0], color="b", lw=4),
-                Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+                Line2D([0], [0], color="b", lw=4)], ['max abs', 'mean abs'])
     plt.tight_layout()
     return plt.gcf()
 
