@@ -57,8 +57,8 @@ def evaluate(model: nn.Module, eval_loader: DataLoader, sw: SummaryWriter, step:
     stft2 = STFTLoss(n_fft=128, win_length=80, hop_length=40).to(device)
     stft3 = STFTLoss(n_fft=2048, win_length=1920, hop_length=640).to(device)
 
-    for i, (x, y_true) in enumerate(eval_loader):
-        y_pred = model(x.to(device))
+    for i, (ids, x, y_true) in enumerate(eval_loader):
+        y_pred = model(x.to(device), ids=ids.to(device) if ids is not None else None)
 
         trunc = min(y_pred.shape[-1], y_true.shape[-1])
         y_pred = y_pred[..., :trunc]

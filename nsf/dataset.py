@@ -42,12 +42,13 @@ def normalize_loudness(signal, target_dBov=-26.0):
     return normalized_signal
 
 
-class LogMel(nn.Module):
-    def __init__(self, sample_rate=16000, n_fft=512, hop_length=160, win_length=512, n_mels=36) -> None:
+class LogMelPitch(nn.Module):
+    def __init__(self, sample_rate=16000, n_fft=512, hop_length=160, win_length=400, n_mels=36):
         super().__init__()
 
         self.sample_rate = sample_rate
         self.hop_length = hop_length
+        self.n_mels = n_mels
         self.melspec = torchaudio.transforms.MelSpectrogram(
             sample_rate=self.sample_rate,
             n_fft=n_fft,
@@ -69,8 +70,11 @@ class LogMel(nn.Module):
                                   pitch_min=70, pitch_max=400,
                                   frame_stride=self.hop_length/self.sample_rate)
 
-        x = (self.melspec(y) + 1e-8).log()
-        x = torch.cat([x, pitch[None, :]], dim=-2)
+        if self.n_mels:
+            x = (self.melspec(y) + 1e-8).log()
+            x = torch.cat([x, pitch[None, :]], dim=-2)
+        else:
+            x = pitch[None, :]
         return x
 
 
@@ -128,7 +132,7 @@ class ConditionalWaveDataset(Dataset):
             state_dict = torch.load(condition_encoder_checkpoint, map_location='cpu')['encoder']
             self.cond.encoder.load_state_dict(state_dict)
         else:
-            self.cond = LogMel(sample_rate=self.sample_rate, hop_length=self.hop_length)
+            self.cond = LogMelPitch(sample_rate=self.sample_rate, hop_length=self.hop_length)
         self.chunk_size = chunk_size
         self.root = root
 
@@ -138,7 +142,7 @@ class ConditionalWaveDataset(Dataset):
             y, sr = read_wave(filename)
         except FileNotFoundError:
             y, sr = read_wave(self.root / filename)
-        assert sr == 16000
+        assert sr == self.sample_rate
         y = normalize_loudness(y)
 
         if self.chunk_size is not None:
@@ -148,7 +152,69 @@ class ConditionalWaveDataset(Dataset):
         y = y[:, :(y.shape[-1]//self.hop_length)*self.hop_length]
 
         x = self.cond(y)
-        return x.squeeze(0), y
+        return None, x.squeeze(0), y
+
+    def __len__(self):
+        return len(self.files)
+
+
+class SymbolCondDataset(Dataset):
+    def __init__(self,
+                 file_and_symbols: list[list[str]],
+                 sample_rate=16000,
+                 hop_length=160,
+                 root: Optional[Path] = None,
+                 id2sym: Optional[dict[int, str]] = None,
+                 sym2id: Optional[dict[str, int]] = None,
+                 ) -> None:
+        super().__init__()
+
+        self.file_and_symbols = file_and_symbols
+        self.hop_length = hop_length
+        self.sample_rate = sample_rate
+        self.root = root
+        self.cond = LogMelPitch(sample_rate=self.sample_rate, hop_length=self.hop_length, n_mels=0)
+        if id2sym:
+            assert sym2id
+            self.sym2id = sym2id
+            self.id2sym = id2sym
+            have_id2sym = True
+        else:
+            self.sym2id = {}
+            self.id2sym = {}
+            have_id2sym = False
+
+        self.files = []
+        self.ids = []
+        i = 0
+        for file_and_syms in self.file_and_symbols:
+            filename, *ali = file_and_syms
+            if not have_id2sym:
+                for sym in ali:
+                    if not sym in self.sym2id:
+                        self.sym2id[sym] = i
+                        self.id2sym[i] = sym
+                        i += 1
+            self.files.append(filename)
+            self.ids.append([self.sym2id[sym] for sym in ali])
+
+    def __getitem__(self, index):
+        filename = self.files[index]
+        try:
+            y, sr = read_wave(filename)
+        except FileNotFoundError:
+            y, sr = read_wave(self.root / filename)
+        assert sr == self.sample_rate
+        y = normalize_loudness(y)
+        y = y[:, :(y.shape[-1]//self.hop_length)*self.hop_length]
+        x = self.cond(y)
+
+        ids = torch.LongTensor(self.ids[index])[None, :]
+
+        n_ids = ids.shape[-1]
+        n_frames = y.shape[-1] // self.hop_length
+        #assert n_ids == n_frames, f"{x.shape=} {x=} {y.shape=} {filename=} {n_ids=} != {n_frames=}"
+        return ids, x, y
 
     def __len__(self):
         return len(self.files)
@@ -156,7 +222,7 @@ class ConditionalWaveDataset(Dataset):
 
 def collate_channels(xs):
     "Moves all time steps (last dim) into the batch dimension (first dim)."
-    return torch.cat([x.T for x, _ in xs], dim=0)
+    return torch.cat([x.T for _, x, _ in xs], dim=0)
 
 
 @torch.inference_mode()
@@ -164,9 +230,10 @@ def compute_mean_std(dataset, norm_examples=8):
     x = next(iter(DataLoader(dataset, batch_size=norm_examples, num_workers=8,
                              collate_fn=collate_channels, shuffle=True)))
 
-    # compute stats for mel features
-    mean = x[:,:-1].mean(dim=0)[None, :, None]
-    std = x[:,:-1].std(dim=0)[None, :, None]
+    if x.shape[-1] > 1:
+        # compute stats for mel features
+        mean = x[:,:-1].mean(dim=0)[None, :, None]
+        std = x[:,:-1].std(dim=0)[None, :, None]
 
     # compute f0 stats ignoring unvoiced segments
     f0 = x[:,-1]
@@ -174,7 +241,10 @@ def compute_mean_std(dataset, norm_examples=8):
     f0_mean = f0[f0>0].mean(0, keepdim=True)[None, :, None]
     f0_std = f0[f0>0].std(0, keepdim=True)[None, :, None]
 
-    return torch.cat([mean, f0_mean], dim=1), torch.cat([std, f0_std], dim=1)
+    if x.shape[-1] > 1:
+        return torch.cat([mean, f0_mean], dim=1), torch.cat([std, f0_std], dim=1)
+    else:
+        return f0_mean, f0_std
 
 
 if False:

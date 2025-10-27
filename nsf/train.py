@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Subset
 from torch.distributed import init_process_group
 from torch.utils.tensorboard import SummaryWriter
 
-import nsf.dataset
+from nsf.dataset import ConditionalWaveDataset, SymbolCondDataset, compute_mean_std
 from nsf.loss import STFTLoss
 from nsf.vocoder import HnNSF
 from nsf.train_ops import plot_grad_flow, evaluate, checkpoint
@@ -37,6 +37,7 @@ class Experiment:
     in_channels: int = 37 # Number of input channels for generator
     norm_examples: int = 1024 # Number of dataset examples for feature normalization
     num_workers: int = 8 # Number of workers for dataloaders
+    alignments: bool = False # treat train and eval as symbol alignment files
 
 
 def train(rank, h: Experiment):
@@ -49,32 +50,44 @@ def train(rank, h: Experiment):
 
     torch.backends.cuda.matmul.fp32_precision = 'tf32'
     torch.backends.cudnn.conv.fp32_precision = 'tf32'
-    torch.set_float32_matmul_precision("high")
 
     torch.cuda.manual_seed(h.seed)
     device = torch.device('cuda:{:d}'.format(rank))
 
-    generator = HnNSF(sample_rate=h.sample_rate, in_channels=h.in_channels)
+    if h.alignments:
+        assert h.chunk_size is None, "{h.chunk_size=} is not supported when alignments are used for training"
+        train_set = SymbolCondDataset([line.split() for line in h.train.read_text().strip().split('\n')],
+                                      sample_rate=h.sample_rate,
+                                      root=h.train.parent)
+        eval_set = SymbolCondDataset([line.split() for line in h.eval.read_text().strip().split('\n')],
+                                      sample_rate=h.sample_rate,
+                                      root=h.eval.parent,
+                                      sym2id=train_set.sym2id,
+                                      id2sym=train_set.id2sym)
 
-    train_set = nsf.dataset.ConditionalWaveDataset([line.split(maxsplit=1)[0]
-                                                    for line in h.train.read_text().strip().split('\n')],
-                                                   sample_rate=h.sample_rate,
-                                                   chunk_size=h.chunk_size,
-                                                   condition_encoder_checkpoint=h.condition_encoder_checkpoint,
-                                                   root=h.train.parent)
-    eval_set = nsf.dataset.ConditionalWaveDataset([line.split(maxsplit=1)[0]
-                                                   for line in h.eval.read_text().strip().split('\n')],
-                                                  sample_rate=h.sample_rate,
-                                                  chunk_size=h.chunk_size,
-                                                  condition_encoder_checkpoint=h.condition_encoder_checkpoint,
-                                                  root=h.eval.parent)
+        sym2id = train_set.sym2id
+    else:
+        train_set = ConditionalWaveDataset([line.split(maxsplit=1)[0] for line in h.train.read_text().strip().split('\n')],
+                                            sample_rate=h.sample_rate,
+                                            chunk_size=h.chunk_size,
+                                            condition_encoder_checkpoint=h.condition_encoder_checkpoint,
+                                            root=h.train.parent)
+        eval_set = ConditionalWaveDataset([line.split(maxsplit=1)[0] for line in h.eval.read_text().strip().split('\n')],
+                                          sample_rate=h.sample_rate,
+                                          chunk_size=h.chunk_size,
+                                          condition_encoder_checkpoint=h.condition_encoder_checkpoint,
+                                          root=h.eval.parent)
+
+        sym2id = None
+
+    generator = HnNSF(sample_rate=h.sample_rate, in_channels=h.in_channels, sym2id=sym2id)
 
     train_loader = DataLoader(train_set, batch_size=h.batch_size,
                               num_workers=h.num_workers, pin_memory=True,
                               drop_last=True, shuffle=True,
-                              prefetch_factor=2, persistent_workers=True)
+                              prefetch_factor=2 if h.num_workers else None, persistent_workers=bool(h.num_workers))
     eval_loader = DataLoader(eval_set, batch_size=1, num_workers=h.num_workers, pin_memory=True,
-                             prefetch_factor=2, persistent_workers=True)
+                             prefetch_factor=2 if h.num_workers else None, persistent_workers=bool(h.num_workers))
 
     if rank == 0:
         sw = SummaryWriter(h.exp / 'logs')
@@ -87,7 +100,7 @@ def train(rank, h: Experiment):
         }, metric_dict={})
 
     if h.init is None:
-        mean, std = nsf.dataset.compute_mean_std(train_set, norm_examples=h.norm_examples)
+        mean, std = compute_mean_std(train_set, norm_examples=h.norm_examples)
         print('done computing input statistics')
         generator.input_mean.data, generator.input_std.data = mean, std
         checkpoint(h.exp, generator, 'init')
@@ -110,10 +123,10 @@ def train(rank, h: Experiment):
         sw.add_scalar('train/epoch', epoch, step)
 
         t0 = time.time()
-        for x, y in train_loader:
+        for ids, x, y in train_loader:
             g_optimizer.zero_grad(set_to_none=True)
 
-            y_pred = generator(x.to(device))
+            y_pred = generator(x.to(device), ids=ids.to(device) if ids is not None else None)
             y_true = y.to(device)
 
             trunc = min(y_pred.shape[-1], y_true.shape[-1])
@@ -152,7 +165,6 @@ def train(rank, h: Experiment):
 
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument("--foo", type=int, default=123, help="foo help")
     parser.add_arguments(Experiment, dest="experiment")
 
     args = parser.parse_args()

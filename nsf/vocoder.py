@@ -14,6 +14,7 @@ class HnNSF(nn.Module):
                  sample_rate,
                  hop_length=160,
                  in_channels=37,
+                 sym2id=None,
                  ) -> None:
         super().__init__()
 
@@ -21,7 +22,13 @@ class HnNSF(nn.Module):
         self.input_std = nn.Parameter(torch.ones(1, in_channels, 1), requires_grad=False)
 
         self.sample_rate = sample_rate
-        self.encoder = Encoder(in_channels=in_channels, out_channels=64)
+
+        if sym2id:
+            self.embedding = nn.Embedding(len(sym2id), 127)
+            self.encoder = Encoder(in_channels=128, out_channels=64)  # adds f0
+        else:
+            self.embedding = None
+            self.encoder = Encoder(in_channels=in_channels, out_channels=64)
 
         self.scale_factor = hop_length
 
@@ -38,12 +45,17 @@ class HnNSF(nn.Module):
 
         self.sum = Sum()
 
-    def forward(self, x):
+    def forward(self, x, ids=None):
         _, f0 = x[:, :-1], x[:, -1:]
-        f0 = self.upsample_nearest(f0)
         x = (x - self.input_mean) / self.input_std
+
+        if ids is not None:
+            cond = self.embedding(ids).mT.squeeze(1)
+            cond = nn.functional.interpolate(cond, size=(x.shape[-1],), mode='linear')
+            x = torch.cat([cond, x], dim=1)
         x = self.upsample_linear(self.encoder(x))
 
+        f0 = self.upsample_nearest(f0)
         harmonic = self.harmonic(f0)
         for filter in self.harmonic_filters:
             harmonic = filter(harmonic, x)
